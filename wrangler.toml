@@ -8,7 +8,7 @@ binding = "ASSETS"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "affiliate_plus_tracker"
+database_name = "affiliate-plus-tracker"
 database_id = "5d1a9042-438f-4075-979e-b48055d30651"
 
 [vars]
