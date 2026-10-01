@@ -429,8 +429,19 @@ async function verifyTwitchSignature(request, rawBody, env) {
   const key = await crypto.subtle.importKey('raw', secretBytes, {name:'HMAC',hash:'SHA-256'}, false, ['sign']);
   const data = new TextEncoder().encode(msgId + timestamp + rawBody);
   const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, data));
-  const expected = 'sha256=' + btoa(String.fromCharCode(...mac));
-  return expected === signature;
+  // Twitch expects the HMAC-SHA256 digest encoded as lowercase hexadecimal,
+  // prefixed with "sha256=", not Base64.
+  const digestHex = [...mac].map(b => b.toString(16).padStart(2, '0')).join('');
+  const expected = 'sha256=' + digestHex;
+
+  if (expected.length !== signature.length) return false;
+
+  // Constant-time byte comparison to avoid timing differences.
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) {
+    diff |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
+  }
+  return diff === 0;
 }
 
 function serveAsset(request, env) {
