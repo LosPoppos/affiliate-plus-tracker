@@ -333,6 +333,38 @@ async function twitchSubscriptionTier(env, channel, userId) {
   return null;
 }
 
+async function processCliTestEvent(env, channel, type, event, eventTimestamp) {
+  // The Twitch CLI can generate channel.subscribe and
+  // channel.subscription.message mock webhook payloads. We deliberately keep
+  // these test-only by requiring ?test=1 on the webhook URL, so a real
+  // subscription event cannot accidentally be double-counted.
+  if (type === 'channel.subscribe') {
+    // Twitch's current CLI `subscribe` trigger is a standard paid Tier 1
+    // subscription and the payload exposes is_gift. Gift subscriptions do not
+    // generate Plus Points.
+    if (!event || event.is_gift === true) return;
+    await addPoints(
+      env,
+      channel.broadcaster_id,
+      tierPoints(event.tier),
+      eventTimestamp
+    );
+    return;
+  }
+
+  if (type === 'channel.subscription.message') {
+    // This is a resubscription event. One event represents the current renewal;
+    // do not multiply by duration_months.
+    if (!event) return;
+    await addPoints(
+      env,
+      channel.broadcaster_id,
+      tierPoints(event.tier),
+      eventTimestamp
+    );
+  }
+}
+
 async function processChatNotification(env, channel, event, eventTimestamp) {
   if (!event || !event.notice_type) return;
 
@@ -559,6 +591,13 @@ export default {
       return new Response(null,{status:204,headers:{'Set-Cookie':clearCookie('pp_session')}});
     }
 
+    if (url.pathname === '/api/test-info') {
+      return json({
+        ok: true,
+        message: 'Use Twitch CLI against /webhook/twitch?test=1 with the EVENTSUB_SECRET to simulate subscribe or subscribe-message events.'
+      });
+    }
+
     if (url.pathname.startsWith('/api/overlay/')) {
       const key = url.pathname.split('/').pop();
       const c = await findChannelByPublicKey(env,key);
@@ -614,6 +653,11 @@ export default {
 
           if (type === 'channel.chat.notification') {
             await processChatNotification(env,channel,event,eventTs);
+          } else if (
+            url.searchParams.get('test') === '1' &&
+            (type === 'channel.subscribe' || type === 'channel.subscription.message')
+          ) {
+            await processCliTestEvent(env,channel,type,event,eventTs);
           }
         } catch (e) {
           console.log('webhook processing failed',e.message);
