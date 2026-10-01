@@ -241,20 +241,21 @@ async function findChannelByPublicKey(env, key) {
 
 async function createSubscription(env, broadcasterId, type, version='1') {
   const token = await appAccessToken(env);
-  const body = {
-    type,
-    version,
-    condition: {broadcaster_user_id: broadcasterId},
-    transport: {
-      method:'webhook',
-      callback: `${env.PUBLIC_BASE_URL.replace(/\/$/,'')}/webhook/twitch`,
-      secret: env.EVENTSUB_SECRET
-    }
-  };
-  if (type === 'channel.chat.notification') {
-    // Current Twitch webhook auth requires the broadcaster's grant for channel bot/chat access.
-    body.condition.broadcaster_user_id = broadcasterId;
+const body = {
+  type,
+  version,
+  condition: {
+    broadcaster_user_id: broadcasterId,
+    ...(type === 'channel.chat.notification'
+      ? { user_id: broadcasterId }
+      : {})
+  },
+  transport: {
+    method:'webhook',
+    callback: `${env.PUBLIC_BASE_URL.replace(/\/$/,'')}/webhook/twitch`,
+    secret: env.EVENTSUB_SECRET
   }
+};
   const r = await fetch(`${API}/eventsub/subscriptions`, {
     method:'POST',
     headers:{'Client-Id':env.TWITCH_CLIENT_ID, Authorization:`Bearer ${token}`, 'Content-Type':'application/json'},
