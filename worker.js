@@ -38,11 +38,6 @@ function getCookie(request, name) {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-async function sha256Hex(text) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,'0')).join('');
-}
-
 function monthKeyFromDate(date) {
   const y = date.getUTCFullYear();
   const m = String(date.getUTCMonth()+1).padStart(2,'0');
@@ -96,14 +91,6 @@ async function decryptText(env, encoded) {
   const ct = raw.slice(12);
   const pt = await crypto.subtle.decrypt({name:'AES-GCM', iv}, key, ct);
   return new TextDecoder().decode(pt);
-}
-
-async function twitchValidateToken(env, accessToken) {
-  const r = await fetch(`${OAUTH}/validate`, {
-    headers: {Authorization: `OAuth ${accessToken}`}
-  });
-  if (!r.ok) return null;
-  return await r.json();
 }
 
 async function twitchUser(env, accessToken) {
@@ -203,10 +190,6 @@ async function cleanup(env) {
   ]);
 }
 
-function requireConfigTableSQL() {
-  return `CREATE TABLE IF NOT EXISTS app_tokens (id INTEGER PRIMARY KEY, value TEXT NOT NULL)`;
-}
-
 async function ensureCurrentMonth(env, broadcasterId) {
   const mk = monthKeyNow();
   await env.DB.prepare(
@@ -241,26 +224,36 @@ async function findChannelByPublicKey(env, key) {
 
 async function createSubscription(env, broadcasterId, type, version='1') {
   const token = await appAccessToken(env);
-const body = {
-  type,
-  version,
-  condition: {
-    broadcaster_user_id: broadcasterId,
-    ...(type === 'channel.chat.notification'
-      ? { user_id: broadcasterId }
-      : {})
-  },
-  transport: {
-    method:'webhook',
-    callback: `${env.PUBLIC_BASE_URL.replace(/\/$/,'')}/webhook/twitch`,
-    secret: env.EVENTSUB_SECRET
+
+  const condition = { broadcaster_user_id: broadcasterId };
+  if (type === 'channel.chat.notification') {
+    // channel.chat.notification requires both broadcaster_user_id and the
+    // user_id whose chat identity reads the channel. We use the broadcaster
+    // as the chat user; the OAuth flow grants the required chat scopes.
+    condition.user_id = broadcasterId;
   }
-};
+
+  const body = {
+    type,
+    version,
+    condition,
+    transport: {
+      method:'webhook',
+      callback: `${env.PUBLIC_BASE_URL.replace(/\/$/,'')}/webhook/twitch`,
+      secret: env.EVENTSUB_SECRET
+    }
+  };
+
   const r = await fetch(`${API}/eventsub/subscriptions`, {
     method:'POST',
-    headers:{'Client-Id':env.TWITCH_CLIENT_ID, Authorization:`Bearer ${token}`, 'Content-Type':'application/json'},
+    headers:{
+      'Client-Id':env.TWITCH_CLIENT_ID,
+      Authorization:`Bearer ${token}`,
+      'Content-Type':'application/json'
+    },
     body:JSON.stringify(body)
   });
+
   const txt = await r.text();
   if (!r.ok) throw new Error(`EventSub ${type} failed: ${r.status} ${txt}`);
   return JSON.parse(txt);
@@ -268,69 +261,118 @@ const body = {
 
 async function ensureEventSubs(env, broadcasterId) {
   const token = await appAccessToken(env);
+  const callback = `${env.PUBLIC_BASE_URL.replace(/\/$/,'')}/webhook/twitch`;
+
   const r = await fetch(`${API}/eventsub/subscriptions?status=enabled`, {
-    headers:{'Client-Id':env.TWITCH_CLIENT_ID, Authorization:`Bearer ${token}`}
+    headers:{
+      'Client-Id':env.TWITCH_CLIENT_ID,
+      Authorization:`Bearer ${token}`
+    }
   });
+
   const body = r.ok ? await r.json() : {data:[]};
   const existing = body.data || [];
-  const needed = [
-    'channel.chat.notification',
-    'channel.subscribe',
-    'channel.subscription.message',
-    'channel.subscription.end',
-    'channel.subscription.gift'
-  ];
-  const results = [];
-  for (const type of needed) {
-    const found = existing.some(s =>
-      s.type === type &&
-      s.condition?.broadcaster_user_id === broadcasterId &&
-      s.transport?.callback === `${env.PUBLIC_BASE_URL.replace(/\/$/,'')}/webhook/twitch`
-    );
-    if (!found) {
-      try { results.push(await createSubscription(env,broadcasterId,type)); }
-      catch (e) { results.push({error:e.message,type}); }
-    }
-  }
-  return results;
+
+  // Use one canonical stream for Plus Points. Its payload contains
+  // is_prime/is_gift for subscriptions and resubscriptions, plus dedicated
+  // paid-upgrade notices for Prime/Gift -> paid recurring subscriptions.
+  const type = 'channel.chat.notification';
+  const found = existing.some(s =>
+    s.type === type &&
+    s.status === 'enabled' &&
+    s.condition?.broadcaster_user_id === broadcasterId &&
+    s.condition?.user_id === broadcasterId &&
+    s.transport?.callback === callback
+  );
+
+  if (!found) return [await createSubscription(env,broadcasterId,type)];
+  return [];
+}
+
+async function sleep(ms) {
+  await new Promise(resolve => setTimeout(resolve, ms));
 }
 
 async function twitchSubscriptionTier(env, channel, userId) {
   const access = await getUserAccessToken(env, channel);
-  const r = await fetch(`${API}/subscriptions?broadcaster_id=${encodeURIComponent(channel.broadcaster_id)}&user_id=${encodeURIComponent(userId)}`, {
-    headers:{'Client-Id':env.TWITCH_CLIENT_ID, Authorization:`Bearer ${access}`}
-  });
-  if (!r.ok) return null;
-  const body = await r.json();
-  return body.data?.[0]?.tier || null;
+  const url = `${API}/subscriptions?broadcaster_id=${encodeURIComponent(channel.broadcaster_id)}&user_id=${encodeURIComponent(userId)}`;
+
+  // A gift-paid-upgrade event can arrive very close to the moment at which the
+  // subscription record changes from gift=true to gift=false. Retry briefly so
+  // we do not accidentally credit a gifted sub.
+  for (const delay of [0, 750, 2000]) {
+    if (delay) await sleep(delay);
+
+    const r = await fetch(url, {
+      headers:{
+        'Client-Id':env.TWITCH_CLIENT_ID,
+        Authorization:`Bearer ${access}`
+      }
+    });
+    if (!r.ok) continue;
+
+    const body = await r.json();
+    const sub = body.data?.[0];
+    if (!sub) continue;
+    if (sub.is_gift === true) continue;
+
+    return sub.tier || null;
+  }
+
+  return null;
 }
 
-async function processChatNotification(env, channel, event, messageTimestamp) {
-  const notice = event?.notice_type;
-  if (!notice) return;
+async function processChatNotification(env, channel, event, eventTimestamp) {
+  if (!event || !event.notice_type) return;
 
+  // A shared-chat notice can originate from another broadcaster. It must not
+  // be credited to the broadcaster tracked by this overlay.
+  if (String(event.notice_type).startsWith('shared_chat_')) return;
+
+  const notice = event.notice_type;
+
+  // New subscription. Prime and gift subscriptions are explicitly excluded
+  // from Plus Points. A multi-month purchase contributes only once now;
+  // subsequent monthly renewals arrive as their own future events.
   if (notice === 'sub' && event.sub) {
-    if (event.sub.is_prime === true) return;
-    await addPoints(env, channel.broadcaster_id, tierPoints(event.sub.sub_tier), messageTimestamp);
+    const isPrime = event.sub.is_prime === true;
+    const isGift = event.sub.is_gift === true;
+    if (isPrime || isGift) return;
+
+    const tier = event.sub.sub_tier ?? event.sub.sub_plan;
+    await addPoints(env, channel.broadcaster_id, tierPoints(tier), eventTimestamp);
     return;
   }
 
+  // Paid recurring renewal. Again, count the actual purchase/renewal event,
+  // not every month of a pre-paid multi-month term in advance.
   if (notice === 'resub' && event.resub) {
-    if (event.resub.is_prime === true || event.resub.is_gift === true) return;
-    await addPoints(env, channel.broadcaster_id, tierPoints(event.resub.sub_tier), messageTimestamp);
+    const isPrime = event.resub.is_prime === true;
+    const isGift = event.resub.is_gift === true;
+    if (isPrime || isGift) return;
+
+    const tier = event.resub.sub_tier ?? event.resub.sub_plan;
+    await addPoints(env, channel.broadcaster_id, tierPoints(tier), eventTimestamp);
     return;
   }
 
+  // A Prime subscription earns no Plus Points until its paid recurring period
+  // actually begins. Twitch exposes the paid-upgrade tier here.
   if (notice === 'prime_paid_upgrade' && event.prime_paid_upgrade) {
-    await addPoints(env, channel.broadcaster_id, tierPoints(event.prime_paid_upgrade.sub_tier), messageTimestamp);
+    const tier = event.prime_paid_upgrade.sub_tier ?? event.prime_paid_upgrade.sub_plan;
+    await addPoints(env, channel.broadcaster_id, tierPoints(tier), eventTimestamp);
     return;
   }
 
+  // A gifted subscription earns no Plus Points. When the gifted term ends and
+  // paid recurring billing starts, Twitch emits gift_paid_upgrade. The notice
+  // does not include the new tier, so use the broadcaster-subscriptions API.
   if (notice === 'gift_paid_upgrade') {
     const userId = event.chatter_user_id || event.user_id;
     if (!userId) return;
+
     const tier = await twitchSubscriptionTier(env, channel, userId);
-    await addPoints(env, channel.broadcaster_id, tierPoints(tier), messageTimestamp);
+    await addPoints(env, channel.broadcaster_id, tierPoints(tier), eventTimestamp);
   }
 }
 
@@ -408,8 +450,6 @@ export default {
       const accessEnc = await encryptText(env,tb.access_token);
       const refreshEnc = await encryptText(env,tb.refresh_token);
       const publicKey = randomString(18);
-      const current = await getCurrentPoints(env,user.id).catch(()=>0);
-
       // preserve an existing public key/config where possible
       const existing = await findChannelById(env,user.id);
       const created = nowSec();
@@ -436,9 +476,17 @@ export default {
         accessEnc,refreshEnc,nowSec()+Number(tb.expires_in||0),created,created
       ).run();
 
-      const sid = await createSession(env,user.id);
-      try { await ensureEventSubs(env,user.id); } catch (e) { console.log('EventSub setup:',e.message); }
+      let eventSubError = '';
+      try {
+        await ensureEventSubs(env,user.id);
+      } catch (e) {
+        eventSubError = String(e?.message || e);
+      }
+      if (eventSubError) {
+        return htmlRedirect(`/?error=eventsub_setup_failed&error_description=${encodeURIComponent(eventSubError)}`);
+      }
 
+      const sid = await createSession(env,user.id);
       const headers = new Headers({Location:'/setup'});
       headers.append('Set-Cookie',cookie('pp_session',sid,86400*30));
       return new Response(null,{status:302,headers});
@@ -551,16 +599,11 @@ export default {
 
           const type = payload.subscription?.type;
           const event = payload.event;
-          const ts = payload.subscription?.created_at || new Date().toISOString();
+          const eventTs = request.headers.get('Twitch-Eventsub-Message-Timestamp') || new Date().toISOString();
 
           if (type === 'channel.chat.notification') {
-            const messageTs = request.headers.get('Twitch-Eventsub-Message-Timestamp') || ts;
-            await processChatNotification(env,channel,event,messageTs);
+            await processChatNotification(env,channel,event,eventTs);
           }
-
-          // The other subscription events are intentionally not used for points,
-          // because the chat notification payload is the one that distinguishes
-          // paid recurring subscriptions from Prime/gift transactions.
         } catch (e) {
           console.log('webhook processing failed',e.message);
         }
