@@ -255,6 +255,17 @@ async function createSubscription(env, broadcasterId, type, version='1') {
   });
 
   const txt = await r.text();
+  if (r.status === 409) {
+    // Twitch returns 409 when an identical type+condition already exists.
+    // This is a normal/idempotent state for reconnecting the same broadcaster.
+    let body = {};
+    try { body = JSON.parse(txt); } catch {}
+    return {
+      existing: true,
+      id: body.id || body.subscription?.id || null,
+      message: body.message || 'Subscription already exists'
+    };
+  }
   if (!r.ok) throw new Error(`EventSub ${type} failed: ${r.status} ${txt}`);
   return JSON.parse(txt);
 }
