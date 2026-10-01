@@ -12,4 +12,4 @@ database_name = "affiliate-plus-tracker"
 database_id = "5d1a9042-438f-4075-979e-b48055d30651"
 
 [vars]
-PUBLIC_BASE_URL = "https://REPLACE_WITH_YOUR_WORKER_DOMAIN"
+PUBLIC_BASE_URL = "https://affiliate-plus-tracker.lospoppos-twitch.workers.dev"
