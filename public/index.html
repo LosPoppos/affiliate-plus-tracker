@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Affiliate Plus Tracker</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="page">
+    <header class="site-header">
+      <div class="brand-mark">★</div>
+      <div>
+        <div class="brand-title">Affiliate Plus Tracker</div>
+        <div class="brand-subtitle">Twitch Plus Points · OBS Browser Source</div>
+      </div>
+    </header>
+
+    <main>
+      <section id="landing" class="card">
+        <div class="eyebrow">FÜR STREAMER</div>
+        <h1>Deinen Plus-Points-Balken einrichten</h1>
+        <p class="lead">
+          Einmal mit Twitch verbinden, aktuellen Punktestand übernehmen,
+          Text und Emote auswählen – danach bekommst du eine fertige URL für OBS.
+        </p>
+        <a class="btn primary" href="/auth/start">Mit Twitch verbinden</a>
+        <p class="small">
+          Es werden nur die für Subscription-Tracking benötigten Twitch-Berechtigungen angefragt.
+          Die Twitch-Anmeldung bleibt auf Twitch.
+        </p>
+      </section>
+
+      <section id="setup" class="card hidden">
+        <div class="eyebrow">EINRICHTUNG</div>
+        <h1>Overlay konfigurieren</h1>
+
+        <div class="account" id="accountBox">Twitch-Konto wird geladen …</div>
+
+        <div class="grid">
+          <label class="field">
+            <span>Text</span>
+            <input id="title" maxlength="80" value="AFFILIATE PLUS erreichen!">
+          </label>
+
+          <label class="field">
+            <span>Untertitel</span>
+            <input id="label" maxlength="40" value="Neue Abo-Punkte">
+          </label>
+        </div>
+
+        <div class="grid">
+          <label class="field">
+            <span>Ziel</span>
+            <input id="target" type="number" min="1" max="9999" step="1" value="100">
+          </label>
+
+          <label class="field">
+            <span>Aktueller Punktestand</span>
+            <input id="points" type="number" min="0" max="9999" step="1" value="0">
+          </label>
+        </div>
+
+        <div class="icon-section">
+          <div class="section-label">Icon</div>
+          <div class="icon-options">
+            <label class="radio">
+              <input type="radio" name="iconType" value="star" checked>
+              <span>★ Twitch-Stil Stern</span>
+            </label>
+            <label class="radio">
+              <input type="radio" name="iconType" value="emote">
+              <span>Twitch-Emote-ID</span>
+            </label>
+            <label class="radio">
+              <input type="radio" name="iconType" value="image">
+              <span>Bild-URL</span>
+            </label>
+          </div>
+
+          <label class="field hidden" id="emoteField">
+            <span>Twitch Emote ID</span>
+            <input id="emoteId" placeholder="z. B. 25 für Kappa">
+          </label>
+
+          <label class="field hidden" id="imageField">
+            <span>Bild-URL</span>
+            <input id="imageUrl" placeholder="https://…">
+          </label>
+
+          <div class="preview-wrap">
+            <div class="section-label">Vorschau</div>
+            <div class="preview-bg">
+              <div id="preview" class="widget">
+                <div class="widget-top">
+                  <div class="widget-title-wrap">
+                    <div id="previewIcon" class="widget-icon star-icon" aria-hidden="true">★</div>
+                    <div id="previewTitle" class="widget-title">AFFILIATE PLUS erreichen!</div>
+                  </div>
+                  <div class="widget-value-wrap">
+                    <div id="previewValue" class="widget-value">0/100</div>
+                    <div id="previewLabel" class="widget-label">Neue Abo-Punkte</div>
+                  </div>
+                </div>
+                <div class="widget-bar"><div id="previewFill" class="widget-fill"></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="saveBtn" class="btn primary">Speichern & OBS-Link erzeugen</button>
+          <button id="logoutBtn" class="btn secondary">Twitch trennen</button>
+        </div>
+
+        <div id="result" class="result hidden">
+          <div class="result-title">Fertig</div>
+          <p>Diese URL kannst du direkt als OBS-Browserquelle verwenden:</p>
+          <div class="url-row">
+            <input id="obsUrl" readonly>
+            <button id="copyBtn" class="btn secondary">Kopieren</button>
+          </div>
+          <div class="obs-settings">
+            <span><strong>OBS Größe:</strong> 420 × 80 px</span>
+            <span><strong>Hintergrund:</strong> transparent</span>
+            <span><strong>Aktualisierung:</strong> automatisch</span>
+          </div>
+        </div>
+
+        <p id="status" class="status"></p>
+
+        <details class="details">
+          <summary>Was zählt?</summary>
+          <p>
+            Der Tracker folgt den Twitch-Plus-Point-Regeln für den aktuellen Kalendermonat:
+            Tier 1 = 1 Punkt, Tier 2 = 2 Punkte, Tier 3 = 6 Punkte.
+            Bezahlte wiederkehrende Subs zählen; Gift Subs und Prime Subs zählen nicht.
+          </p>
+        </details>
+      </section>
+
+      <section id="error" class="card hidden">
+        <div class="eyebrow">FEHLER</div>
+        <h1 id="errorTitle">Die Verbindung konnte nicht hergestellt werden.</h1>
+        <p id="errorMessage" class="lead"></p>
+        <a class="btn secondary" href="/">Zurück</a>
+      </section>
+    </main>
+  </div>
+
+  <script src="/setup.js"></script>
+</body>
+</html>

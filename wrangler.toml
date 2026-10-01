@@ -1,0 +1,15 @@
+name = "affiliate-plus-tracker"
+main = "worker.js"
+compatibility_date = "2026-09-30"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "affiliate_plus_tracker"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[vars]
+PUBLIC_BASE_URL = "https://REPLACE_WITH_YOUR_WORKER_DOMAIN"
