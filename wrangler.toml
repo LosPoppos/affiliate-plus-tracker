@@ -9,7 +9,7 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "affiliate_plus_tracker"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "5d1a9042-438f-4075-979e-b48055d30651"
 
 [vars]
 PUBLIC_BASE_URL = "https://REPLACE_WITH_YOUR_WORKER_DOMAIN"
