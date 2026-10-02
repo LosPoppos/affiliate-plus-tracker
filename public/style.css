@@ -59,8 +59,8 @@ input:focus{border-color:#6a3cac;box-shadow:0 0 0 3px rgba(145,71,255,.12)}
 .details summary{color:#cfc8d4;font-weight:800;cursor:pointer}
 
 /* OBS overlay */
-.overlay-page{width:420px;height:80px;min-height:80px;overflow:hidden;background:transparent}
-.overlay-page .widget{position:relative;margin:14px 4px 0 4px;width:calc(100% - 8px)}
+.overlay-page{width:840px;height:160px;min-height:160px;overflow:hidden;background:transparent}
+.overlay-page .widget{position:relative;margin:28px 8px 0 8px;width:calc(100% - 16px)}
 .widget{
   width:420px;height:58px;
   border:2px solid #3c3940;
@@ -89,6 +89,56 @@ input:focus{border-color:#6a3cac;box-shadow:0 0 0 3px rgba(145,71,255,.12)}
 .widget-label{font-size:10px;line-height:12px;color:#ddd8df}
 .widget-bar{height:8px;border-radius:999px;background:#37343c;border:1px solid #48444d;overflow:hidden}
 .widget-fill{height:100%;width:0;border-radius:999px;background:#bdb9c2;transition:width .45s ease}
+
+/* 2x overlay render resolution overrides */
+.overlay-page .widget{
+  height:116px;
+  border:4px solid #3c3940;
+  border-radius:16px;
+  box-shadow:0 6px 26px rgba(0,0,0,.35);
+  padding:14px 16px 14px 18px;
+}
+.overlay-page .widget-top{
+  height:62px;
+  gap:20px;
+}
+.overlay-page .widget-title-wrap{
+  gap:16px;
+  padding-top:2px;
+}
+.overlay-page .widget-icon{
+  width:44px;
+  height:44px;
+  flex:0 0 44px;
+}
+.overlay-page .star-icon{
+  font-size:40px;
+  text-shadow:0 2px 0 #000,2px 0 0 #777,-2px 0 0 #777,0 -2px 0 #777;
+  line-height:44px;
+}
+.overlay-page .image-icon{
+  width:44px;
+  height:44px;
+}
+.overlay-page .widget-title{
+  font-size:24px;
+  line-height:36px;
+}
+.overlay-page .widget-value{
+  font-size:24px;
+  line-height:26px;
+}
+.overlay-page .widget-label{
+  font-size:20px;
+  line-height:24px;
+}
+.overlay-page .widget-bar{
+  height:16px;
+  border:2px solid #48444d;
+}
+.overlay-page .widget-fill{
+  height:100%;
+}
 
 /* tiny viewport */
 @media(max-width:650px){
