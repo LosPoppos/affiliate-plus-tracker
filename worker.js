@@ -105,35 +105,53 @@ async function twitchUser(env, accessToken) {
 async function appAccessToken(env) {
   const cached = await env.DB.prepare(
     'SELECT value FROM app_tokens WHERE id = 1'
-  ).first().catch(()=>null);
+  ).first().catch(() => null);
 
   if (cached) {
     try {
       const obj = JSON.parse(cached.value);
-      if (obj.access_token && obj.expires_at > nowSec()+300) return obj.access_token;
+
+      if (obj.access_token && obj.expires_at > nowSec() + 300) {
+        return obj.access_token;
+      }
     } catch {}
   }
 
+  return await createFreshAppAccessToken(env);
+}
+
+async function createFreshAppAccessToken(env) {
   const url = new URL(`${OAUTH}/token`);
   url.searchParams.set('client_id', env.TWITCH_CLIENT_ID);
   url.searchParams.set('client_secret', env.TWITCH_CLIENT_SECRET);
   url.searchParams.set('grant_type', 'client_credentials');
 
   const r = await fetch(url, {method:'POST'});
-  if (!r.ok) throw new Error(`Twitch app token failed: ${r.status}`);
+
+  if (!r.ok) {
+    const txt = await r.text();
+    throw new Error(`Twitch app token failed: ${r.status} ${txt}`);
+  }
+
   const body = await r.json();
+
   const expiresAt = nowSec() + Number(body.expires_in || 0);
-  const value = JSON.stringify({access_token:body.access_token, expires_at:expiresAt});
-  // This table is created lazily so old installations can upgrade without a migration.
+
+  const value = JSON.stringify({
+    access_token: body.access_token,
+    expires_at: expiresAt
+  });
+
   await env.DB.prepare(
     'CREATE TABLE IF NOT EXISTS app_tokens (id INTEGER PRIMARY KEY, value TEXT NOT NULL)'
   ).run();
+
   await env.DB.prepare(
     'INSERT INTO app_tokens(id,value) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value'
   ).bind(value).run();
+
   return body.access_token;
 }
-
 async function refreshUserToken(env, channel) {
   const refreshToken = await decryptText(env, channel.refresh_token_enc);
   const url = new URL(`${OAUTH}/token`);
@@ -274,16 +292,32 @@ async function ensureEventSubs(env, broadcasterId) {
   const token = await appAccessToken(env);
   const callback = `${env.PUBLIC_BASE_URL.replace(/\/$/,'')}/webhook/twitch`;
 
-  const r = await fetch(`${API}/eventsub/subscriptions`, {
+ let r = await fetch(`${API}/eventsub/subscriptions`, {
+  headers:{
+    'Client-Id':env.TWITCH_CLIENT_ID,
+    Authorization:`Bearer ${token}`
+  }
+});
+
+if (r.status === 401) {
+  // Cached App Access Token may have become invalid.
+  // Clear it and obtain a fresh token using the current client secret.
+  await env.DB.prepare('DELETE FROM app_tokens WHERE id=1').run();
+
+  const freshToken = await createFreshAppAccessToken(env);
+
+  r = await fetch(`${API}/eventsub/subscriptions`, {
     headers:{
       'Client-Id':env.TWITCH_CLIENT_ID,
-      Authorization:`Bearer ${token}`
+      Authorization:`Bearer ${freshToken}`
     }
   });
+}
 
-  if (!r.ok) {
-    throw new Error(`EventSub list failed: ${r.status}`);
-  }
+if (!r.ok) {
+  const txt = await r.text();
+  throw new Error(`EventSub list failed: ${r.status} ${txt}`);
+}
 
   const body = await r.json();
   const existing = body.data || [];
