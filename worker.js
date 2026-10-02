@@ -682,9 +682,99 @@ export default {
     if (url.pathname === '/setup' || url.pathname === '/setup/') {
       return env.ASSETS.fetch(new Request(new URL('/index.html',request.url),request));
     }
-    if (url.pathname.startsWith('/o/')) {
-      return env.ASSETS.fetch(new Request(new URL('/overlay.html',request.url),request));
+   if (url.pathname.startsWith('/o/')) {
+  const parts = url.pathname.split('/').filter(Boolean);
+  const publicKey = parts[1];
+
+  if (!publicKey) {
+    return new Response('Overlay nicht gefunden.', {
+      status: 404,
+      headers: {'Content-Type': 'text/plain; charset=utf-8'}
+    });
+  }
+
+  const channel = await findChannelByPublicKey(env, publicKey);
+
+  if (!channel) {
+    return new Response('Overlay nicht gefunden.', {
+      status: 404,
+      headers: {'Content-Type': 'text/plain; charset=utf-8'}
+    });
+  }
+
+  const points = await getCurrentPoints(env, channel.broadcaster_id);
+
+  const assetResponse = await env.ASSETS.fetch(
+    new Request(new URL('/overlay.html', request.url))
+  );
+
+  let html = await assetResponse.text();
+
+  const escapeHtml = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+  const title = escapeHtml(channel.title);
+  const label = escapeHtml(channel.label);
+  const target = Number(channel.target) || 100;
+  const safePoints = Number(points) || 0;
+
+  const percent = Math.min(
+    100,
+    Math.max(0, (safePoints / target) * 100)
+  );
+
+  let iconHtml;
+
+  if (channel.icon_url) {
+    iconHtml = `
+      <img
+        class="widget-icon image-icon"
+        alt=""
+        referrerpolicy="no-referrer"
+        src="${escapeHtml(channel.icon_url)}"
+      >
+    `;
+  } else {
+    iconHtml = '★';
+  }
+
+  html = html.replace(
+    /<div id="icon"[^>]*>[\s\S]*?<\/div>/,
+    `<div id="icon" class="widget-icon ${channel.icon_url ? '' : 'star-icon'}" aria-hidden="true">${iconHtml}</div>`
+  );
+
+  html = html.replace(
+    /<div id="title"[^>]*>[\s\S]*?<\/div>/,
+    `<div id="title" class="widget-title">${title}</div>`
+  );
+
+  html = html.replace(
+    /<div id="value"[^>]*>[\s\S]*?<\/div>/,
+    `<div id="value" class="widget-value">${safePoints}/${target}</div>`
+  );
+
+  html = html.replace(
+    /<div id="label"[^>]*>[\s\S]*?<\/div>/,
+    `<div id="label" class="widget-label">${label}</div>`
+  );
+
+  html = html.replace(
+    /<div id="fill"[^>]*><\/div>/,
+    `<div id="fill" class="widget-fill" style="width:${percent}%"></div>`
+  );
+
+  return new Response(html, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store'
     }
+  });
+}
 
     return serveAsset(request,env);
   }
