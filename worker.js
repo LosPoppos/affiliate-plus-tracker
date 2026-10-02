@@ -274,32 +274,57 @@ async function ensureEventSubs(env, broadcasterId) {
   const token = await appAccessToken(env);
   const callback = `${env.PUBLIC_BASE_URL.replace(/\/$/,'')}/webhook/twitch`;
 
-  const r = await fetch(`${API}/eventsub/subscriptions?status=enabled`, {
+  const r = await fetch(`${API}/eventsub/subscriptions`, {
     headers:{
       'Client-Id':env.TWITCH_CLIENT_ID,
       Authorization:`Bearer ${token}`
     }
   });
 
-  const body = r.ok ? await r.json() : {data:[]};
+  if (!r.ok) {
+    throw new Error(`EventSub list failed: ${r.status}`);
+  }
+
+  const body = await r.json();
   const existing = body.data || [];
 
-  // Use one canonical stream for Plus Points. Its payload contains
-  // is_prime/is_gift for subscriptions and resubscriptions, plus dedicated
-  // paid-upgrade notices for Prime/Gift -> paid recurring subscriptions.
   const type = 'channel.chat.notification';
-  const found = existing.some(s =>
+
+  const matches = existing.filter(s =>
     s.type === type &&
-    s.status === 'enabled' &&
     s.condition?.broadcaster_user_id === broadcasterId &&
     s.condition?.user_id === broadcasterId &&
     s.transport?.callback === callback
   );
 
-  if (!found) return [await createSubscription(env,broadcasterId,type)];
-  return [];
-}
+  const enabled = matches.find(s => s.status === 'enabled');
+  if (enabled) return [];
 
+  const failedOrPending = matches.filter(s =>
+    s.status !== 'enabled'
+  );
+
+  for (const sub of failedOrPending) {
+    if (sub.id) {
+      const del = await fetch(
+        `${API}/eventsub/subscriptions?id=${encodeURIComponent(sub.id)}`,
+        {
+          method:'DELETE',
+          headers:{
+            'Client-Id':env.TWITCH_CLIENT_ID,
+            Authorization:`Bearer ${token}`
+          }
+        }
+      );
+
+      if (!del.ok && del.status !== 404) {
+        throw new Error(`EventSub cleanup failed: ${del.status}`);
+      }
+    }
+  }
+
+  return [await createSubscription(env,broadcasterId,type)];
+}
 async function sleep(ms) {
   await new Promise(resolve => setTimeout(resolve, ms));
 }
